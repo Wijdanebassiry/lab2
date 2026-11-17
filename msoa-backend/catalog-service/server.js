@@ -1,164 +1,162 @@
+try { require('dotenv').config(); } catch (_) { }
 const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
+// Config
+const PORT = Number(process.env.PORT);
+const HOST = process.env.HOST;
+const ALLOWED_ORIGINS = process.env.FRONTEND_ORIGIN.split(',').map(s => s.trim()).filter(Boolean);
+
+class HttpError extends Error {
+    constructor(status, message) { super(message); this.status = status; }
+}
+const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// App
 const app = express();
-app.use(express.json());
+app.use(helmet());
+app.use(cors({ origin: ALLOWED_ORIGINS, methods: ['GET'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+app.use(express.json({ limit: '10kb' }));
 
-// Database connection & Auto-initialization
-const dbPath = path.join(__dirname, 'catalog.db');
-const db = new sqlite3.Database(dbPath, (err) => {
+// Database
+// catalog.db is not versioned (*.db is git-ignored): the table is created and seeded on first start.
+const SEED_PRODUCTS = [
+    [1, 'ThinkPad Laptop', 'Electronics', 8499.0, '', 'Business laptop'],
+    [2, 'Wireless Mouse', 'Accessories', 199.0, '', 'Wireless optical mouse'],
+    [3, 'Mechanical Keyboard', 'Accessories', 599.0, '', 'Mechanical keyboard'],
+    [4, 'USB-C Hub', 'Accessories', 349.0, '', 'Multiport USB-C adapter'],
+    [5, '27-inch Monitor', 'Electronics', 2299.0, '', 'Full HD display'],
+    [6, 'Laptop Backpack', 'Accessories', 399.0, '', 'Protective laptop backpack']
+];
+
+let markReady;
+const ready = new Promise((resolve) => { markReady = resolve; });
+
+const dbPath = process.env.DB_PATH || path.resolve(__dirname, 'catalog.db');
+const db = new sqlite3.Database(dbPath, async (err) => {
     if (err) {
-        console.error('Error opening database', err.message);
+        console.error(`[Catalog] Database error: ${err.message}`);
     } else {
-        console.log('Connected to the catalog SQLite database.');
-        // Auto-create table and insert default products if not exists
-        db.run(`CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            price REAL NOT NULL,
-            stock INTEGER NOT NULL,
-            category TEXT
-        )`, (createErr) => {
-            if (!createErr) {
-                db.get(`SELECT COUNT(*) as count FROM products`, (countErr, row) => {
-                    if (!countErr && row.count === 0) {
-                        const seedProducts = [
-                            [1, 'Laptop HP EliteBook', 'Core i5 8th Gen, 16GB RAM, 512GB SSD', 8499, 10, 'Computers'],
-                            [2, 'Smartphone Samsung Galaxy', '128GB, 8GB RAM, Black', 3499, 25, 'Phones'],
-                            [3, 'Wireless Headphones', 'Noise cancelling, Bluetooth 5.0', 599, 50, 'Accessories'],
-                            [4, 'Mechanical Keyboard', 'RGB backlit, Red switches', 799, 30, 'Accessories'],
-                            [5, 'Gaming Mouse', 'Ergonomic, 16000 DPI', 399, 40, 'Accessories'],
-                            [6, 'Monitor 24 inch', 'Full HD IPS, 75Hz', 1899, 15, 'Displays']
-                        ];
-                        const stmt = db.prepare(`INSERT OR IGNORE INTO products (id, name, description, price, stock, category) VALUES (?, ?, ?, ?, ?, ?)`);
-                        seedProducts.forEach(prod => stmt.run(prod));
-                        stmt.finalize();
-                    }
-                });
-            }
-        });
+        console.log('[Catalog] Connected to catalog.db');
+        db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+        try { await initDatabase(); } catch (e) { console.error(`[Catalog] Init error: ${e.message}`); }
     }
+    markReady();
 });
 
-// Conversion rates from environment variables or defaults
-const RATE_EUR = parseFloat(process.env.RATE_EUR) || 10.87;
-const RATE_USD = parseFloat(process.env.RATE_USD) || 10.0;
+const run = (sql, params = []) => new Promise((resolve, reject) => {
+    db.run(sql, params, (err) => { if (err) reject(err); else resolve(); });
+});
 
-// ==========================================
-// PARTIE I & II: API v1 (NE DOIT PAS CHANGER)
-// ==========================================
-
-// GET all products (v1)
-app.get('/products', (req, res) => {
-    const query = `SELECT id, name, description, price, stock, category FROM products`;
-    db.all(query, [], (err, rows) => {
-        if (err) {
-            console.error("SQL Error DETAILS (v1 products):", err.message);
-            return res.status(500).json({ error: err.message });
-        }
-        res.json(rows);
+async function initDatabase() {
+    await run(`CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        price REAL NOT NULL CHECK(price >= 0),
+        image TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT ''
+    )`);
+    const row = await new Promise((resolve, reject) => {
+        db.get("SELECT COUNT(*) AS n FROM products", (err, r) => { if (err) reject(err); else resolve(r); });
     });
-});
-
-// GET product by id (v1)
-app.get('/products/:id', (req, res) => {
-    const productId = req.params.id;
-    const query = `SELECT id, name, description, price, stock, category FROM products WHERE id = ?`;
-    db.get(query, [productId], (err, row) => {
-        if (err) {
-            console.error("SQL Error DETAILS (v1 product by id):", err.message);
-            return res.status(500).json({ error: err.message });
+    if (row.n === 0) {
+        for (const p of SEED_PRODUCTS) {
+            await run("INSERT INTO products (id, name, category, price, image, description) VALUES (?, ?, ?, ?, ?, ?)", p);
         }
-        if (!row) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        res.json(row);
-    });
-});
-
-
-// ==========================================
-// PARTIE III: API v2 (NEW - Structured Price)
-// ==========================================
-
-function convertPrice(priceInMAD, currency) {
-    if (!currency || currency === 'MAD') {
-        return { amount: priceInMAD, currency: 'MAD' };
     }
-    if (currency === 'EUR') {
-        const converted = Math.round((priceInMAD / RATE_EUR) * 100) / 100;
-        return { amount: converted, currency: 'EUR' };
-    }
-    if (currency === 'USD') {
-        const converted = Math.round((priceInMAD / RATE_USD) * 100) / 100;
-        return { amount: converted, currency: 'USD' };
-    }
-    return null;
 }
 
-// GET all products (v2)
-app.get('/v2/products', (req, res) => {
-    const currency = req.query.currency || 'MAD';
-    
-    if (!['MAD', 'EUR', 'USD'].includes(currency)) {
-        return res.status(400).json({ error: 'Invalid currency' });
-    }
-
-    const query = `SELECT id, name, description, price, stock, category FROM products`;
-    db.all(query, [], (err, rows) => {
-        if (err) {
-            console.error("SQL Error DETAILS (v2 products):", err.message);
-            return res.status(500).json({ error: err.message });
-        }
-        const updatedRows = rows.map(prod => {
-            const formattedPrice = convertPrice(prod.price, currency);
-            return {
-                ...prod,
-                price: formattedPrice
-            };
-        });
-        res.json(updatedRows);
+const all = async (sql, params = []) => {
+    await ready;
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); });
     });
-});
-
-// GET product by id (v2)
-app.get('/v2/products/:id', (req, res) => {
-    const productId = req.params.id;
-    const currency = req.query.currency || 'MAD';
-
-    if (!['MAD', 'EUR', 'USD'].includes(currency)) {
-        return res.status(400).json({ error: 'Invalid currency' });
-    }
-
-    const query = `SELECT id, name, description, price, stock, category FROM products WHERE id = ?`;
-    db.get(query, [productId], (err, row) => {
-        if (err) {
-            console.error("SQL Error DETAILS (v2 product by id):", err.message);
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-
-        const formattedPrice = convertPrice(row.price, currency);
-        if (!formattedPrice) {
-            return res.status(400).json({ error: 'Invalid currency' });
-        }
-
-        const updatedProduct = {
-            ...row,
-            price: formattedPrice
-        };
-
-        res.json(updatedProduct);
+};
+const get = async (sql, params = []) => {
+    await ready;
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => { if (err) reject(err); else resolve(row); });
     });
+};
+
+// ---------------------------------------------------------------------------
+// API versions
+//   v1  /products, /products/:id        price = NUMBER in MAD. FROZEN: its shape never changes.
+//   v2  /v2/products, /v2/products/:id  price = { amount, currency }, optional ?currency=
+// Rates = how many MAD one unit of the currency is worth (1 EUR = 10.87 MAD). Override with RATE_EUR / RATE_USD.
+// ---------------------------------------------------------------------------
+const MAD_PER_UNIT = {
+    MAD: 1,
+    EUR: Number(process.env.RATE_EUR) || 10.87,
+    USD: Number(process.env.RATE_USD) || 10.0,
+};
+
+function readCurrency(req) {
+    const currency = String(req.query.currency || 'MAD').toUpperCase();
+    if (!Object.hasOwn(MAD_PER_UNIT, currency)) {
+        throw new HttpError(400, `Unsupported currency. Supported: ${Object.keys(MAD_PER_UNIT).join(', ')}.`);
+    }
+    return currency;
+}
+
+// v1 row -> v2 representation (only the price changes)
+function toV2(product, currency) {
+    const amount = Math.round((product.price / MAD_PER_UNIT[currency]) * 100) / 100;
+    return { ...product, price: { amount, currency } };
+}
+
+// Tell v1 consumers where the successor lives (adds a header, changes no body)
+app.use('/products', (req, res, next) => {
+    res.set('Link', '</v2/products>; rel="successor-version"');
+    next();
 });
 
-const PORT = process.env.PORT || 8082;
-app.listen(PORT, () => {
-    console.log(`Catalog service running on port ${PORT}`);
+// 1. GET ALL PRODUCTS
+app.get('/products', wrap(async (req, res) => {
+    res.json(await all("SELECT * FROM products"));
+}));
+
+// 2. GET PRODUCT BY ID
+app.get('/products/:id', wrap(async (req, res) => {
+    const id = req.params.id;
+    if (!id || id.length > 100) throw new HttpError(400, 'Invalid product id.');
+    const product = await get("SELECT * FROM products WHERE id = ?", [id]);
+    if (!product) throw new HttpError(404, 'Product not found.');
+    res.json(product);
+}));
+
+// 3. V2 - GET ALL PRODUCTS (price = { amount, currency })
+app.get('/v2/products', wrap(async (req, res) => {
+    const currency = readCurrency(req);
+    const rows = await all("SELECT * FROM products");
+    res.json(rows.map(p => toV2(p, currency)));
+}));
+
+// 4. V2 - GET PRODUCT BY ID
+app.get('/v2/products/:id', wrap(async (req, res) => {
+    const currency = readCurrency(req);
+    const id = req.params.id;
+    if (!id || id.length > 100) throw new HttpError(400, 'Invalid product id.');
+    const product = await get("SELECT * FROM products WHERE id = ?", [id]);
+    if (!product) throw new HttpError(404, 'Product not found.');
+    res.json(toV2(product, currency));
+}));
+
+// Error handling
+app.use((req, res) => res.status(404).json({ message: 'Not found' }));
+app.use((err, req, res, next) => {
+    if (err instanceof HttpError) return res.status(err.status).json({ message: err.message });
+    if (err.type === 'entity.parse.failed') return res.status(400).json({ message: 'Malformed JSON body.' });
+    console.error('[Catalog] Unhandled error:', err);
+    res.status(500).json({ message: 'Internal server error' });
 });
 
-module.exports = app;
+if (require.main === module) {
+    app.listen(PORT, HOST, () => console.log(`[Catalog] Independent Service listening on ${HOST}:${PORT}`));
+}
+
+module.exports = { app, db };

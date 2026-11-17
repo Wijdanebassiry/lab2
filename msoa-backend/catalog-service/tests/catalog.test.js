@@ -5,10 +5,9 @@ const os = require('node:os');
 const path = require('node:path');
 const request = require('supertest');
 
-// Copie temporaire de la base : les tests ne touchent pas à catalog.db
+// Base temporaire : le serveur la crée et la remplit au démarrage, catalog.db n'est jamais touchée
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'catalog-test-'));
 const tmpDb = path.join(tmpDir, 'catalog.db');
-fs.copyFileSync(path.join(__dirname, '..', 'catalog.db'), tmpDb);
 
 process.env.DB_PATH = tmpDb;
 process.env.HOST = '127.0.0.1';
