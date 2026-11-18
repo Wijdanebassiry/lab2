@@ -2,5 +2,4 @@ venv/
 __pycache__/
 .pytest_cache/
 data/
-# local test screenshots: attached to the pull request, not versioned
 docs/tests/
