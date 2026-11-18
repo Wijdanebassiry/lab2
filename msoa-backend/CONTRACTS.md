@@ -113,11 +113,26 @@ Dossier : `catalog-service` | Base URL : `http://localhost:8082`
 
 Stack : Node.js + Express 5 + SQLite (`catalog.db`)
 
-Statut : tous les endpoints sont implémentés et testés (9 tests automatiques avec `npm test`). Service en lecture seule, sans authentification.
+Statut : tous les endpoints sont implémentés et testés (19 tests automatiques avec `npm test`). Service en lecture seule, sans authentification.
+La base `catalog.db` n'est pas versionnée : elle est créée et remplie (6 produits) au premier démarrage.
 
 Les `id` sont les mêmes que ceux du frontend et d'Inventory (1 à 6). Ici ils sont renvoyés en **nombre** (Inventory les renvoie en chaîne).
 
-### Objet product
+Deux versions de l'API coexistent (voir `API_EVOLUTION.md`) :
+
+| Version | Endpoints | `price` | Statut |
+|---|---|---|---|
+| **v1** | `/products`, `/products/:id` | **nombre**, en MAD | **Figée** : sa forme ne change plus. Utilisée par le frontend et Orders. |
+| **v2** | `/v2/products`, `/v2/products/:id` | **objet** `{ amount, currency }` | Courante, multi-devises |
+
+### Historique des changements
+
+| Date | Version | Changement | Compatible ? |
+|---|---|---|---|
+| initial | v1 | `price` est un nombre (MAD) | n/a |
+| 2026-11 | v2 | Nouveau `price: { amount, currency }` et paramètre `?currency=` sur les routes `/v2` | Oui : v1 est inchangée (seul un en-tête `Link` est ajouté) |
+
+### Objet product (v1)
 
 ```json
 {
@@ -130,15 +145,47 @@ Les `id` sont les mêmes que ceux du frontend et d'Inventory (1 à 6). Ici ils s
 }
 ```
 
-`price` est un nombre. `image` peut être une chaîne vide.
+`price` est un nombre (MAD). `image` peut être une chaîne vide.
 
-### GET /products
+### Objet product (v2)
 
-200 : tableau de tous les produits.
+```json
+{
+  "id": 1,
+  "name": "ThinkPad Laptop",
+  "category": "Electronics",
+  "price": { "amount": 8499, "currency": "MAD" },
+  "image": "",
+  "description": "Business laptop"
+}
+```
 
-### GET /products/:id
+`price.amount` est un nombre (2 décimales au plus), `price.currency` un code ISO 4217. Les autres champs sont identiques à v1.
 
-200 : l'objet product.
+### GET /products (v1)
+
+200 : tableau de tous les produits (objet product v1). Réponse accompagnée de l'en-tête `Link: </v2/products>; rel="successor-version"`. Le paramètre `?currency` est ignoré.
+
+### GET /products/:id (v1)
+
+200 : l'objet product v1.
+
+### GET /v2/products
+
+Paramètre de requête optionnel : `currency` (`MAD` par défaut, `EUR`, `USD` ; insensible à la casse).
+200 : tableau de produits v2, prix convertis depuis le MAD (taux de démonstration : 1 EUR = 10,87 MAD et 1 USD = 10 MAD, modifiables par `RATE_EUR` et `RATE_USD`).
+
+```json
+[{ "id": 1, "name": "ThinkPad Laptop", "category": "Electronics", "price": { "amount": 781.88, "currency": "EUR" }, "image": "", "description": "Business laptop" }]
+```
+
+### GET /v2/products/:id
+
+Même paramètre `currency`. 200 : l'objet product v2.
+
+### En-têtes
+
+Requête : aucun en-tête obligatoire (service public en lecture seule). Réponse : `Content-Type: application/json`.
 
 ### Erreurs
 
@@ -147,6 +194,7 @@ Format `{ "message": "..." }`.
 | Code | Message | Cas |
 |---|---|---|
 | 400 | Invalid product id. | id de plus de 100 caractères |
+| 400 | Unsupported currency. Supported: MAD, EUR, USD. | `currency` inconnue (v2) |
 | 400 | Malformed JSON body. | corps JSON mal formé |
 | 404 | Product not found. | id inconnu |
 | 404 | Not found | route inconnue |
@@ -159,12 +207,14 @@ Seules les origines de `FRONTEND_ORIGIN` sont autorisées, méthode `GET` unique
 ### Configuration
 
 Variables d'environnement obligatoires : `HOST`, `PORT` (8082), `FRONTEND_ORIGIN` (voir `.env.example`).
+Optionnelles : `RATE_EUR` (défaut 10.87) et `RATE_USD` (défaut 10.0) : valeur en MAD d'une unité de la devise (le montant converti = prix en MAD / taux).
 
 ### Appelants et dépendances
 
 - Catalog n'appelle aucun autre service.
-- Le frontend appelle Catalog pour afficher les produits. Le stock disponible vient d'Inventory.
-
+- **Orders** lit `GET /products/:id` (**v1**) et utilise `id`, `name` et `price` (nombre).
+- **Frontend** lit `GET /products` et `GET /products/:id` (**v1**) et utilise `id`, `name`, `category`, `price` (nombre), `image`, `description`. Le stock disponible vient d'Inventory.
+- Quand un consommateur passe à v2, il le note ici.
 
 ## Auth Service (port 8081)
 
