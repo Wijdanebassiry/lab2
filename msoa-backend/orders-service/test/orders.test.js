@@ -103,13 +103,13 @@ test.before(async () => {
       }));
     }
 
-    // Catalog service
-    if (req.method === "GET" && req.url === "/products/1") {
-      return res.end(JSON.stringify({
-        id: 1,
-        name: "Test Product",
-        price: 50
-      }));
+    // Catalog service (API v2: price = { amount, currency })
+    if (req.method === "GET" && req.url === "/v2/products/1?currency=MAD") {
+     return res.end(JSON.stringify({
+       id: 1,
+       name: "Test Product",
+       price: { amount: 50, currency: "MAD" }
+     }));
     }
 
     // Inventory service
@@ -318,6 +318,7 @@ test("POST /api/orders creates an order successfully", async () => {
   assert.equal(order.total, 100);
   assert.equal(order.items.length, 1);
   assert.equal(order.items[0].quantity, 2);
+  assert.equal(order.items[0].price, 50);
 });
 
 test("POST /api/orders rejects an invalid body", async () => {
