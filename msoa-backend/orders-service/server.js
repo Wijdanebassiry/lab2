@@ -9,6 +9,12 @@ const PORT = process.env.PORT || 8084;
 
 const AUTH_URL = process.env.AUTH_URL || "http://127.0.0.1:8081";
 const CATALOG_URL = process.env.CATALOG_URL || "http://127.0.0.1:8082";
+// Catalog API v2 returns price = { amount, currency }; v1 returned a plain number.
+// Orders reads both shapes (tolerant reader) and always asks Catalog for MAD.
+function readCatalogPrice(product) {
+  const raw = product?.price;
+  return Number(raw !== null && typeof raw === "object" ? raw.amount : raw);
+}
 const INVENTORY_URL = process.env.INVENTORY_URL || "http://127.0.0.1:8083";
 const SHIPPING_URL = process.env.SHIPPING_URL || "http://127.0.0.1:8086";
 
@@ -280,14 +286,14 @@ app.post("/api/orders", authenticate, async (req, res) => {
     // Get authoritative product information from Catalog.
     for (const [productId, quantity] of quantities) {
       const product = await apiCall(
-        `${CATALOG_URL}/products/${productId}`
+        `${CATALOG_URL}/v2/products/${productId}?currency=MAD`
       );
 
       if (
         !product ||
         product.id == null ||
-        !Number.isFinite(Number(product.price)) ||
-        Number(product.price) < 0
+        !Number.isFinite(readCatalogPrice(product)) ||
+        readCatalogPrice(product) < 0
       ) {
         return res.status(502).json({
           message: `Invalid product information for product ${productId}.`
@@ -297,7 +303,7 @@ app.post("/api/orders", authenticate, async (req, res) => {
       normalizedItems.push({
         productId,
         name: product.name,
-        price: Number(product.price),
+        price: readCatalogPrice(product),
         quantity
       });
     }
