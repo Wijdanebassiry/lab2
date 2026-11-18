@@ -1,3 +1,31 @@
+# Contrats d'API des microservices
+
+Les sections ci-dessous décrivent chaque service. Les conventions communes et la vue d'ensemble des interactions viennent d'abord.
+
+## Conventions communes
+
+Ces règles s'appliquent à tous les services. Chaque section précise les écarts éventuels.
+
+| Sujet | Convention |
+|---|---|
+| Format | JSON (UTF-8). Les requêtes avec corps (`POST`, `PATCH`) envoient `Content-Type: application/json`. Les réponses renvoient `Content-Type: application/json`. |
+| Authentification | `Authorization: Bearer <token>` (JWT émis par Auth). Obligatoire : Orders, Shipping, Auth (`logout`, `me`). Facultatif : Payments (le token est transmis à Orders). Aucun token : Catalog, Inventory. |
+| Erreurs | Corps JSON avec une clé `message` (texte lisible), que le frontend lit toujours. Selon le service : `detail` (Payments, Inventory) ou `error` (Auth, Shipping, authentification d'Orders). |
+| Codes HTTP | `200` succès, `201` création, `204` succès sans corps, `400` requête invalide, `401` token absent ou invalide, `402` paiement refusé, `403` accès interdit, `404` introuvable, `409` conflit (stock, état), `422` corps invalide, `502`/`503` service dépendant en erreur ou indisponible. |
+| Versionnement | Voir `API_EVOLUTION.md`. Un changement cassant passe par une nouvelle version (`/v2`) ; la version précédente reste inchangée. |
+
+## Interactions entre services
+
+| # | Fournisseur | Consommateur | Appel | Information échangée |
+|---|---|---|---|---|
+| 1 | Auth | Orders, Shipping | `GET /api/auth/me` | Token en entrée ; objet user `{ id, name, email, role }` en sortie |
+| 2 | Catalog | Orders | `GET /v2/products/{id}?currency=MAD` | Produit `{ id, name, price: { amount, currency } }`, prix servant au total de la commande |
+| 3 | Inventory | Orders | `POST /api/inventory/reserve` et `release` | `{ items: [{ productId, quantity }] }` ; réponse `{ success: true }` ou 409 avec la liste `unavailable` |
+| 4 | Shipping | Orders | `GET /api/shipments/order/{orderId}` | État de la livraison, lors d'une annulation (refus au-delà de `PREPARING`) |
+| 5 | Orders | Payments | `GET /api/orders/{id}` puis `PATCH /api/orders/{id}/status` | Total et statut de la commande ; nouveau statut `PAID` |
+| 6 | Orders | Shipping | `GET /api/orders/{id}` puis `PATCH /api/orders/{id}/status` | Statut `PAID` exigé ; nouveaux statuts `SHIPPED` et `DELIVERED` |
+| 7 | Les six services | Frontend | routes de chaque section | Catalog v1 (produits), Inventory (`stock`, `check`), Auth, Orders, Payments, Shipping |
+
 ## Payments Service (port 8085)
 
 Dossier : `payments-service` | Base URL : `http://localhost:8085`
@@ -5,6 +33,15 @@ Dossier : `payments-service` | Base URL : `http://localhost:8085`
 Docs : `http://localhost:8085/docs` | OpenAPI : `payments-service/payment-openapi.json`
 
 Statut : tous les endpoints sont implémentés et testés (12 tests automatiques + tests manuels Swagger).
+
+### En-têtes
+
+| En-tête | Requêtes | Valeur |
+|---|---|---|
+| `Content-Type` | `POST /api/payments` | `application/json` |
+| `Authorization` | `POST /api/payments` | `Bearer <token>` (facultatif ; transmis tel quel à Orders) |
+
+Réponses : `Content-Type: application/json`.
 
 ### POST /api/payments
 
@@ -74,6 +111,22 @@ Statut : tous les endpoints sont implémentés et testés (9 tests automatiques 
 Les `productId` sont les mêmes que ceux du frontend et du Catalog (1 à 6). Ils sont acceptés en nombre ou en chaîne, et renvoyés en chaîne.
 Le stock disponible est renvoyé dans le champ `stock` (lu par le frontend : `data.stock`).
 
+### En-têtes et schéma des requêtes
+
+Aucun token n'est requis. Les requêtes `POST` envoient `Content-Type: application/json` ; les réponses renvoient `application/json`.
+
+Corps de `check`, `reserve` et `release` :
+
+| Champ | Type | Obligatoire | Règle |
+|---|---|---|---|
+| `items` | tableau | oui | au moins 1 élément |
+| `items[].productId` | chaîne ou nombre | oui | identifiant du produit (ex. `1`) |
+| `items[].quantity` | entier | oui | supérieur à 0 |
+
+Paramètre d'URL : `productId` (chaîne) pour `GET /api/inventory/{productId}`.
+
+Codes de succès : `200` pour toutes les routes. Les erreurs sont décrites sous chaque endpoint (`404`, `409`, `422`).
+
 ### GET /api/inventory
 
 200 : `[{ "productId": "1", "stock": 12 }]`
@@ -133,6 +186,7 @@ Deux versions de l'API coexistent (voir `API_EVOLUTION.md`) :
 |---|---|---|---|
 | initial | v1 | `price` est un nombre (MAD) | n/a |
 | 2026-11 | v2 | Nouveau `price: { amount, currency }` et paramètre `?currency=` sur les routes `/v2` | Oui : v1 est inchangée (seul un en-tête `Link` est ajouté) |
+| 2026-11 | v2 (consommateur) | Orders migre vers `/v2/products/:id?currency=MAD` ; le frontend reste sur v1 | Oui : migration à son rythme, sans coordination de déploiement |
 
 ### Objet product (v1)
 
@@ -214,7 +268,7 @@ Optionnelles : `RATE_EUR` (défaut 10.87) et `RATE_USD` (défaut 10.0) : valeur 
 ### Appelants et dépendances
 
 - Catalog n'appelle aucun autre service.
-- **Orders** lit `GET /products/:id` (**v1**) et utilise `id`, `name` et `price` (nombre).
+- **Orders** lit `GET /v2/products/:id?currency=MAD` (**v2**) et utilise `id`, `name` et `price.amount` (nombre). Il accepte aussi la forme v1 (lecteur tolérant).
 - **Frontend** lit `GET /products` et `GET /products/:id` (**v1**) et utilise `id`, `name`, `category`, `price` (nombre), `image`, `description`. Le stock disponible vient d'Inventory.
 - Quand un consommateur passe à v2, il le note ici.
 
@@ -226,6 +280,15 @@ Stack : Django + Django REST Framework + SimpleJWT (SQLite)
 
 
 Statut : tous les endpoints sont implémentés et testés (15 tests automatiques avec `python manage.py test` + tests manuels PowerShell et frontend du professeur avec `AUTH: "rest"`).
+
+### En-têtes
+
+| En-tête | Requêtes | Valeur |
+|---|---|---|
+| `Content-Type` | `POST /api/auth/login`, `POST /api/auth/register` | `application/json` |
+| `Authorization` | `POST /api/auth/logout`, `GET /api/auth/me` | `Bearer <token>` (obligatoire) |
+
+Réponses : `Content-Type: application/json` (sauf le `204` de `logout`, sans corps).
 
 ### Token
 
@@ -295,6 +358,15 @@ Format `{ "message": "...", "error": "..." }` (les deux clés ont le même texte
 Dossier : `shipping-service` | Base URL : `http://localhost:8086` | Database : `shipping_db`
 
 **Statut :** endpoints REST implémentés. Authentification JWT et synchronisation des statuts avec Orders implémentées.
+
+### En-têtes
+
+| En-tête | Requêtes | Valeur |
+|---|---|---|
+| `Authorization` | toutes les routes | `Bearer <token>` (obligatoire) |
+| `Content-Type` | `POST /api/shipments`, `PATCH /api/shipments/{id}/status` | `application/json` |
+
+Réponses : `Content-Type: application/json`.
 
 ### Authentification
 
@@ -425,6 +497,15 @@ Orders valide le token auprès du service Auth via `GET /api/auth/me`.
 
 L'identifiant de l'utilisateur authentifié (`user.id`) est utilisé comme `userId`. Le client ne doit pas envoyer ni choisir `userId`.
 
+### En-têtes
+
+| En-tête | Requêtes | Valeur |
+|---|---|---|
+| `Authorization` | toutes sauf `GET /` | `Bearer <token>` (obligatoire) |
+| `Content-Type` | `POST` et `PATCH` avec corps | `application/json` |
+
+Réponses : `Content-Type: application/json`.
+
 ### Endpoints
 
 - `GET /` : vérification de disponibilité du service.
@@ -463,6 +544,32 @@ Lors de la création :
 
 Statut initial : `PENDING_PAYMENT`.
 
+### Schéma des requêtes
+
+| Endpoint | Champ ou paramètre | Type | Obligatoire | Règle |
+|---|---|---|---|---|
+| `POST /api/orders` | `customer.name` | chaîne | oui | non vide |
+| `POST /api/orders` | `customer.address` | chaîne | oui | non vide |
+| `POST /api/orders` | `customer.city` | chaîne | oui | non vide |
+| `POST /api/orders` | `items` | tableau | oui | au moins 1 élément |
+| `POST /api/orders` | `items[].productId` | entier | oui | identifiant d'un produit du Catalog |
+| `POST /api/orders` | `items[].quantity` | entier | oui | supérieur à 0 |
+| `PATCH /api/orders/{id}/status` | `status` | chaîne | oui | `PAID`, `SHIPPED` ou `DELIVERED`, selon les transitions autorisées |
+| `GET`, `PATCH`, `POST` sur `/api/orders/{id}...` | `id` (URL) | chaîne (UUID) | oui | identifiant de la commande |
+
+Un `userId` envoyé dans le corps est ignoré : l'utilisateur est celui du token.
+
+### Codes de succès
+
+| Endpoint | Code | Corps de la réponse |
+|---|---|---|
+| `GET /` | 200 | message de disponibilité |
+| `GET /api/orders` | 200 | tableau d'objets order |
+| `GET /api/orders/{id}` | 200 | objet order |
+| `POST /api/orders` | 201 | objet order créé |
+| `PATCH /api/orders/{id}/status` | 200 | objet order mis à jour |
+| `POST /api/orders/{id}/cancel` | 200 | objet order (statut `CANCELLED`) |
+
 ### Statuts et transitions
 
 Statuts possibles :
@@ -497,7 +604,7 @@ En cas d'échec après la libération du stock, Orders tente de réserver à nou
 ### Dépendances : Orders appelle
 
 - **Auth** (`AUTH_URL`, défaut `http://127.0.0.1:8081`) : validation du Bearer Token via `GET /api/auth/me`.
-- **Catalog** (`CATALOG_URL`, défaut `http://127.0.0.1:8082`) : récupération des informations et des prix des produits via `/products/{productId}`.
+- **Catalog** (`CATALOG_URL`, défaut `http://127.0.0.1:8082`) : récupération des informations et des prix des produits via `GET /v2/products/{productId}?currency=MAD` (Catalog API v2, le prix est lu dans `price.amount`).
 - **Inventory** (`INVENTORY_URL`, défaut `http://127.0.0.1:8083`) : réservation et libération du stock.
 - **Shipping** (`SHIPPING_URL`, défaut `http://127.0.0.1:8086`) : vérification de l'état de livraison lors d'une annulation via `GET /api/shipments/order/{orderId}`.
 
