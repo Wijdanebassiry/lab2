@@ -61,8 +61,17 @@ def test_by_order_404(client):
 
 def test_missing_order_id(client):
     c, _ = client
-    assert c.post("/api/payments", json={}).status_code == 422
-
+    r = c.post("/api/payments", json={})
+    assert r.status_code == 422
+    assert r.json()["message"] == "Invalid request body."
+    assert "detail" in r.json()
+    
+def test_unsupported_method(client):
+    c, fake = client
+    r = c.post("/api/payments", json={"orderId": "o1", "method": "BITCOIN"})
+    assert r.status_code == 422
+    assert not fake.paid
+    
 def test_health(client):
     c, _ = client
     assert c.get("/health").json()["status"] == "UP"

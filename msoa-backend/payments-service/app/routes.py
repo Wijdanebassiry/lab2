@@ -30,5 +30,4 @@ def by_order(order_id: str, db: Session = Depends(get_db)):
 
 
 def create(data: PaymentRequest, db: Session = Depends(get_db),authorization: str | None = Header(None)):
-    # Le token de l'utilisateur est transmis tel quel à Orders (s'il existe)
-    return service.process_payment(db, gateway, orders, data.orderId, data.method, authorization)
+    return service.process_payment(db, gateway, orders, data.orderId, data.method.value, authorization)

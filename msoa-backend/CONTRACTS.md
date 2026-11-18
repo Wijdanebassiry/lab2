@@ -4,11 +4,12 @@ Dossier : `payments-service` | Base URL : `http://localhost:8085`
 
 Docs : `http://localhost:8085/docs` | OpenAPI : `payments-service/payment-openapi.json`
 
-Statut : tous les endpoints sont implémentés et testés (11 tests automatiques + tests manuels Swagger).
+Statut : tous les endpoints sont implémentés et testés (12 tests automatiques + tests manuels Swagger).
 
 ### POST /api/payments
 
-Requête : `{ "orderId": "order-demo-001", "method": "CARD" }` (`method` = `CARD` ou `CASH`, défaut `CARD`).
+Requête : `{ "orderId": "order-demo-001", "method": "CARD" }`. `method` accepte `CARD` (défaut), `CASH`, et les valeurs de test `TEST_DECLINE` / `TEST_TIMEOUT` ; toute autre valeur est refusée en 422.
+
 
 `orderId` est une chaîne (pas forcément un UUID). Le montant n'est pas envoyé : Payments lit `total` chez Orders.
 
@@ -34,7 +35,8 @@ Erreurs, au format `{ "message": "...", "detail": "..." }` :
 | 402 | Payment declined: `<raison>` |
 | 401 / 403 | Not authorized to access this order. (renvoyé quand Orders refuse le token) |
 | 503 | Orders service unavailable. / Orders service error. / Could not update order status. / Payment provider unavailable. |
-| 422 | Body invalide (`orderId` manquant) |
+| 422 | Invalid request body. (`orderId` manquant ou `method` non supporté ; `detail` contient le détail des champs) |
+
 
 ### GET /api/payments/order/{orderId}
 

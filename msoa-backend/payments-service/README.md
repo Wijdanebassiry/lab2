@@ -23,7 +23,8 @@ Swagger docs: http://localhost:8085/docs | OpenAPI file: `payment-openapi.json`
 | GET | /api/payments | list all payments |
 | GET | /health | health check |
 
-`method` is `CARD` or `CASH`. The amount is never sent by the client: it is read from Orders.
+`method` is `CARD` (default), `CASH`, or `TEST_DECLINE` / `TEST_TIMEOUT` for the simulated failure scenarios. Any other value is rejected with 422. The amount is never sent by the client: it is read from Orders.
+
 
 Response 201:
 
@@ -77,11 +78,12 @@ After a failure, the same order can be paid again. After a `SUCCESS`, it cannot 
 python -m pytest -q
 ```
 
-9 automated tests use a fake Orders client. `fake_orders.py` is a small stand-in for Orders (port 8084) for manual tests:
+12 automated tests use a fake Orders client. `fake_orders.py` is a small stand-in for Orders (port 8084) for manual tests:
 
 ```bash
 python -m uvicorn fake_orders:app --port 8084
 ```
+
 
 ## Configuration
 
