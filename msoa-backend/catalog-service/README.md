@@ -1,17 +1,18 @@
+Markdown
 # Catalog Service (port 8082)
 
 Microservice qui expose le catalogue produits. Stack : Node.js 22, Express 5, SQLite (`catalog.db`).
 Il gère uniquement les informations produit (nom, prix, image…) ; le stock est dans Inventory.
 
+catalog.db n'est pas versionné : il est créé et rempli (6 produits) au premier démarrage. Les tests utilisent une base temporaire.
+
 ## Lancer en local
 
-```
 cd catalog-service
 npm install
-cp .env.example .env       # Windows (cmd) : copy .env.example .env
+cp .env.example .env        # Windows (cmd) : copy .env.example .env
 npm start                 # ou npm run dev (nodemon)
 
-```
 
 > **Le fichier `.env` est obligatoire.** Sans lui, `PORT`, `HOST` et `FRONTEND_ORIGIN` sont vides et le
 > service plante au démarrage. `.env` n'est pas versionné (il est dans `.gitignore`) : chacun copie
@@ -41,17 +42,15 @@ npm start                 # ou npm run dev (nodemon)
 
 | Méthode | URL | Description | 
 | ----- | ----- | ----- | 
-| GET | /v2/products | liste de tous les produits avec prix structuré (`{ amount, currency }`). Supporte le paramètre optionnel \`?currency=MAD | 
-| GET | /v2/products/:id | un produit par ID avec prix structuré. Supporte le paramètre optionnel \`?currency=MAD | 
+| GET | /v2/products | liste des produits avec prix structuré ({ amount, currency }). Paramètre optionnel ?currency=MAD, EUR ou USD (MAD par défaut) | 
+| GET | /v2/products/:id | un produit avec prix structuré. Même paramètre ?currency= | 
 
 Erreurs au format `{ "message": "..." }` : 400 (id ou devise invalide), 404 (produit ou route inconnue), 500.
 Le détail est dans `CONTRACTS.md`.
 
 ## Tests
 
-```
 npm test
 
-```
 
-18 tests automatiques (`node --test` + supertest) couvrant l'API v1 et l'API v2 (liste, champs du contrat, conversion multi-devises MAD/EUR/USD, validation des devises non supportées, gestion des erreurs 400/404, tentative d'injection SQL, en-têtes helmet et CORS). Ils travaillent sur une copie temporaire ou la base de données, la structure globale n'est pas altérée.
+19 tests automatiques (`node --test` + supertest) couvrant l'API v1 et l'API v2 (liste, champs du contrat, conversion multi-devises MAD/EUR/USD, validation des devises non supportées, gestion des erreurs 400/404, tentative d'injection SQL, en-têtes helmet et CORS). Ils travaillent sur une copie temporaire ou la base de données, la structure globale n'est pas altérée.
