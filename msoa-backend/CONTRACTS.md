@@ -680,3 +680,77 @@ Format `{ "message": "..." }` (les erreurs d'authentification ont aussi la clé 
 
 - Sur l'annulation, Orders transmet à Shipping l'en-tête `Authorization` reçu du client (Shipping exige un token).
 - Shipping met à jour la commande : livraison `SHIPPED` → commande `SHIPPED`, livraison `DELIVERED` → commande `DELIVERED` (`IN_TRANSIT` ne change rien).
+
+
+## Communication gRPC, RabbitMQ et Kafka (Lab 4)
+
+Les routes REST existantes ne changent pas. Seules trois interactions changent de mécanisme.
+
+| Cas | Interaction | Mécanisme | Pourquoi |
+|---|---|---|---|
+| 1 | Orders → Inventory | gRPC (synchrone) | Réponse immédiate exigée, appels fréquents, contrat typé et format binaire |
+| 2 | Payments → Shipping | File RabbitMQ durable (asynchrone) | La demande de livraison survit à une panne de Shipping sans retarder le client |
+| 3 | Orders, Payments, Shipping → Analytics | Journal Kafka | Rétention de l'historique et rejeu par plusieurs consommateurs indépendants |
+
+### Cas 1 : gRPC, Orders vers Inventory
+
+Contrat : `contracts/inventory.proto` (package `inventory.v1`, service `Inventory`). Serveur : Inventory, port `50051` (`GRPC_PORT`). Client : Orders (`INVENTORY_GRPC_URL`, défaut `127.0.0.1:50051`, délai `INVENTORY_GRPC_DEADLINE_MS`, défaut 2000). Le REST d'Inventory (port 8083) reste disponible pour le frontend.
+
+| Méthode | Requête | Réponse | Effet |
+|---|---|---|---|
+| `CheckAvailability` | `StockRequest { items: [{ product_id, quantity }] }` | `{ available, unavailable[] }` | Ne modifie rien |
+| `Reserve` | `StockRequest` | `{ success, unavailable[] }` | Tout ou rien ; `success = false` si le stock est insuffisant |
+| `Release` | `StockRequest` | `{ success }` | Remet le stock |
+
+Traduction des erreurs par Orders : `Reserve` avec `success = false` → HTTP 409 ; `INVALID_ARGUMENT` → 400 ; `UNAVAILABLE` ou `DEADLINE_EXCEEDED` → 503 « Inventory service unavailable. ». Variable `INVENTORY_TRANSPORT` : `grpc` (défaut) ou `rest` (repli).
+
+### Cas 2 : RabbitMQ, Payments vers Shipping
+
+| Élément | Valeur |
+|---|---|
+| Connexion | `amqp://guest:guest@localhost:5672/` |
+| Échange | `shipping.exchange`, type `direct`, durable |
+| Échange des échecs | `shipping.dlx`, type `direct`, durable |
+| File principale | `shipment.requests`, durable, arguments `x-dead-letter-exchange = shipping.dlx` et `x-dead-letter-routing-key = shipment.requests.dlq` |
+| File des échecs | `shipment.requests.dlq`, durable, liée à `shipping.dlx` avec la clé `shipment.requests.dlq` |
+| Liaison | `shipping.exchange` → `shipment.requests`, clé `shipment.requested` |
+
+Le producteur (Payments) et le consommateur (Shipping) **déclarent tous les deux** cette topologie avec exactement les mêmes arguments, pour que la file existe même si Shipping n'a jamais démarré.
+
+Message `shipment.requested` (JSON, schéma `contracts/shipment.requested.v1.schema.json`) :
+
+| Champ | Type | Obligatoire | Description |
+|---|---|---|---|
+| `messageId` | chaîne (UUID) | oui | Identifiant unique du message |
+| `type` | chaîne | oui | Toujours `shipment.requested` |
+| `version` | entier | oui | Toujours `1` |
+| `occurredAt` | chaîne (date ISO 8601, UTC) | oui | Date de l'événement |
+| `orderId` | chaîne | oui | Commande payée |
+| `userId` | chaîne | oui | Propriétaire de la commande |
+| `customer` | objet `{ name, address, city }` | oui | Adresse de livraison (chaînes non vides) |
+
+Règles : Payments publie un message **persistant** après un paiement `SUCCESS` (la commande est passée à `PAID`), puis répond au client sans attendre. Une panne du broker ne fait pas échouer le paiement. Shipping acquitte (ack) **après** l'enregistrement en base, ignore un message dont l'`orderId` a déjà une livraison (idempotence), réessaie 3 fois avec un délai, puis envoie le message dans `shipment.requests.dlq`. `POST /api/shipments` renvoie la livraison existante au lieu d'un 409 si l'`orderId` a déjà une livraison.
+
+### Cas 3 : Kafka, événements vers Analytics
+
+| Élément | Valeur |
+|---|---|
+| Serveur | `localhost:9092` |
+| Topics | `orders.events`, `payments.events`, `shipments.events` (3 partitions, rétention illimitée) |
+| Clé de message | `orderId` (ordre garanti pour une même commande) |
+| Groupe du consommateur | `analytics` (lecture depuis le début : `earliest`) |
+
+Enveloppe commune (schéma `contracts/event.envelope.v1.schema.json`) : `{ eventId, eventType, version, occurredAt, source, data }`. Le consommateur est idempotent grâce à `eventId`.
+
+| Topic | `eventType` | `source` | Champs de `data` |
+|---|---|---|---|
+| `orders.events` | `OrderCreated` | `orders` | `orderId`, `userId`, `total`, `currency` (`MAD`), `items[]` (`productId`, `quantity`, `price`) |
+| `orders.events` | `OrderCancelled` | `orders` | `orderId`, `userId` |
+| `payments.events` | `PaymentCompleted` | `payments` | `orderId`, `paymentId`, `amount`, `method` |
+| `payments.events` | `PaymentFailed` | `payments` | `orderId`, `method`, `reason` |
+| `shipments.events` | `ShipmentCreated` | `shipping` | `orderId`, `shipmentId`, `trackingNumber` |
+| `shipments.events` | `ShipmentStatusChanged` | `shipping` | `orderId`, `shipmentId`, `status`, `previousStatus` |
+
+Règles : un événement est publié **après** l'enregistrement en base ; une panne de Kafka ne fait jamais échouer l'opération métier.
+
+Service Analytics (nouveau, port 8087) : `GET /api/analytics/summary` (commandes, annulations, chiffre d'affaires, paiements réussis et refusés, livraisons par statut), `GET /api/analytics/events` (événements bruts), `POST /api/analytics/replay` (recalcul depuis le début), `GET /health`.

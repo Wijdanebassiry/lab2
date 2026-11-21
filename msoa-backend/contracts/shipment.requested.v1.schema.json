@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "shipment.requested.v1",
+  "title": "Message RabbitMQ : demande de livraison (Payments vers Shipping)",
+  "type": "object",
+  "required": ["messageId", "type", "version", "occurredAt", "orderId", "userId", "customer"],
+  "additionalProperties": false,
+  "properties": {
+    "messageId":  { "type": "string", "description": "Identifiant unique du message (UUID). Sert à l'idempotence." },
+    "type":       { "const": "shipment.requested" },
+    "version":    { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time", "description": "Date ISO 8601 en UTC" },
+    "orderId":    { "type": "string", "minLength": 1, "description": "Identifiant de la commande payée (UUID d'Orders)" },
+    "userId":     { "type": "string", "minLength": 1, "description": "Utilisateur propriétaire de la commande (ex. user-1)" },
+    "customer": {
+      "type": "object",
+      "required": ["name", "address", "city"],
+      "additionalProperties": false,
+      "properties": {
+        "name":    { "type": "string", "minLength": 1 },
+        "address": { "type": "string", "minLength": 1 },
+        "city":    { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "examples": [
+    {
+      "messageId": "3f0c6d52-6b1e-4d0e-9a53-0a4f2f5b9d11",
+      "type": "shipment.requested",
+      "version": 1,
+      "occurredAt": "2026-11-20T10:00:00Z",
+      "orderId": "9b2f1a0e-4c55-4c0a-8f7e-2d6b5a1c7e90",
+      "userId": "user-1",
+      "customer": { "name": "Demo Customer", "address": "123 Main Street", "city": "Casablanca" }
+    }
+  ]
+}

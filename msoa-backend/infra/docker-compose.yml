@@ -1,0 +1,23 @@
+# Infrastructure de messagerie du Lab 4 (les six services tournent en local, hors Docker).
+# Démarrer : docker compose up -d      Arrêter SANS perdre les messages : docker compose stop
+# Attention : "docker compose down" supprime les conteneurs et donc les événements Kafka.
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"      # protocole AMQP (les services)
+      - "15672:15672"    # interface web : http://localhost:15672  (guest / guest)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: kafka
+    ports:
+      - "9092:9092"      # les services se connectent à localhost:9092
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
