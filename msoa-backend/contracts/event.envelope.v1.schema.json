@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "event.envelope.v1",
+  "title": "Enveloppe commune des événements Kafka",
+  "type": "object",
+  "required": ["eventId", "eventType", "version", "occurredAt", "source", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId":    { "type": "string", "description": "UUID unique. Sert à l'idempotence côté consommateur." },
+    "eventType":  { "enum": ["OrderCreated", "OrderCancelled", "PaymentCompleted", "PaymentFailed", "ShipmentCreated", "ShipmentStatusChanged"] },
+    "version":    { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "source":     { "enum": ["orders", "payments", "shipping"] },
+    "data":       { "type": "object" }
+  },
+  "allOf": [
+    { "if": { "properties": { "eventType": { "const": "OrderCreated" } } },
+      "then": { "properties": { "source": { "const": "orders" }, "data": {
+        "type": "object", "required": ["orderId", "userId", "total", "currency", "items"],
+        "properties": {
+          "orderId": { "type": "string" }, "userId": { "type": "string" },
+          "total": { "type": "number" }, "currency": { "const": "MAD" },
+          "items": { "type": "array", "minItems": 1, "items": {
+            "type": "object", "required": ["productId", "quantity", "price"],
+            "properties": { "productId": { "type": ["integer", "string"] }, "quantity": { "type": "integer" }, "price": { "type": "number" } } } } } } } } },
+    { "if": { "properties": { "eventType": { "const": "OrderCancelled" } } },
+      "then": { "properties": { "source": { "const": "orders" }, "data": {
+        "type": "object", "required": ["orderId", "userId"],
+        "properties": { "orderId": { "type": "string" }, "userId": { "type": "string" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "PaymentCompleted" } } },
+      "then": { "properties": { "source": { "const": "payments" }, "data": {
+        "type": "object", "required": ["orderId", "paymentId", "amount", "method"],
+        "properties": { "orderId": { "type": "string" }, "paymentId": { "type": "string" },
+                        "amount": { "type": "number" }, "method": { "type": "string" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "PaymentFailed" } } },
+      "then": { "properties": { "source": { "const": "payments" }, "data": {
+        "type": "object", "required": ["orderId", "method", "reason"],
+        "properties": { "orderId": { "type": "string" }, "method": { "type": "string" }, "reason": { "type": "string" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "ShipmentCreated" } } },
+      "then": { "properties": { "source": { "const": "shipping" }, "data": {
+        "type": "object", "required": ["orderId", "shipmentId", "trackingNumber"],
+        "properties": { "orderId": { "type": "string" }, "shipmentId": { "type": ["integer", "string"] }, "trackingNumber": { "type": "string" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "ShipmentStatusChanged" } } },
+      "then": { "properties": { "source": { "const": "shipping" }, "data": {
+        "type": "object", "required": ["orderId", "shipmentId", "status", "previousStatus"],
+        "properties": { "orderId": { "type": "string" }, "shipmentId": { "type": ["integer", "string"] },
+                        "status": { "type": "string" }, "previousStatus": { "type": "string" } } } } } }
+  ]
+}
