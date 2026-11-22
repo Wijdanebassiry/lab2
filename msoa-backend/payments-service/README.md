@@ -91,3 +91,24 @@ python -m uvicorn fake_orders:app --port 8084
 |---|---|
 | `ORDERS_URL` | `http://localhost:8084` |
 | `DATABASE_URL` | `sqlite:///./data/payments.db` |
+
+## Kafka (Lab 4, cas 3)
+
+Payments publishes events to the topic `payments.events` (key = `orderId`), using the
+common envelope defined in `contracts/event.envelope.v1.schema.json`.
+
+| Event | When |
+|---|---|
+| `PaymentCompleted` (orderId, paymentId, amount, method) | payment succeeded and the order is `PAID` |
+| `PaymentFailed` (orderId, method, reason) | payment declined or provider timeout |
+
+Events are published after the database commit, from a background thread. A Kafka outage
+never makes a payment fail (3 retries, then the event is dropped and logged).
+Limit: an event emitted during a long outage is lost (an outbox table would fix it).
+
+| Variable | Default |
+|---|---|
+| `KAFKA_BOOTSTRAP` | `localhost:9092` |
+| `KAFKA_ENABLED` | `true` (set to `false` to disable) |
+
+Tests: `python -m pytest -q` (Kafka is disabled in tests; the broker is not required).
