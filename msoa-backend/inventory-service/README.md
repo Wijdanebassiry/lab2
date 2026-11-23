@@ -56,6 +56,37 @@ Errors are returned as `{ "message": "...", "detail": "..." }`:
 | 409 | Insufficient stock |
 | 422 | Invalid request body |
 
+
+## gRPC (port 50051)
+
+The Orders service checks stock availability through gRPC (low latency, typed contract).
+REST routes are unchanged and remain available.
+
+Contract: `proto/inventory.proto`. One operation:
+
+| RPC | Request | Response |
+|---|---|---|
+| `InventoryService/CheckAvailability` | `items: [{ productId, quantity }]` | `available`, `unavailable: [{ productId, requested, availableQuantity }]` |
+
+Status codes: `NOT_FOUND` for an unknown product, `INVALID_ARGUMENT` for an empty list
+or a quantity <= 0. `productId` is a string. `reserve` and `release` stay on REST.
+
+Run the server (separate terminal, same folder as the REST service):
+
+```bash
+python -m app.grpc_server
+```
+
+Test with grpcurl:
+
+```bash
+grpcurl -plaintext -proto proto/inventory.proto -d '{"items":[{"productId":"3","quantity":3}]}' localhost:50051 inventory.InventoryService/CheckAvailability
+```
+
+The generated code is in `app/grpc_gen/`. After editing the `.proto`, regenerate it with
+`python -m grpc_tools.protoc -I proto --python_out=app/grpc_gen --grpc_python_out=app/grpc_gen proto/inventory.proto`
+and change the import in `inventory_pb2_grpc.py` to `from . import inventory_pb2 as inventory__pb2`.
+
 ## Tests
 
 ```bash
@@ -69,3 +100,4 @@ python -m pytest -q
 | Variable | Default |
 |---|---|
 | `DATABASE_URL` | `sqlite:///./data/inventory.db` |
+| `GRPC_PORT` | `50051` |

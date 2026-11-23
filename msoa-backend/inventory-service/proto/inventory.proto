@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package inventory;
+
+service InventoryService {
+  rpc CheckAvailability (AvailabilityRequest) returns (AvailabilityResponse);
+}
+
+message StockItem {
+  string productId = 1;
+  int32 quantity = 2;
+}
+
+message AvailabilityRequest {
+  repeated StockItem items = 1;
+}
+
+message UnavailableItem {
+  string productId = 1;
+  int32 requested = 2;
+  int32 availableQuantity = 3;
+}
+
+message AvailabilityResponse {
+  bool available = 1;
+  repeated UnavailableItem unavailable = 2;
+}
