@@ -5,10 +5,12 @@ from .models import Payment
 from .schemas import PaymentRequest, PaymentResponse
 from .gateway.simulated import SimulatedGateway
 from .clients.orders_client import OrdersClient
+from .messaging import kafka_events
 from . import service
 
 router = APIRouter(prefix="/api/payments")
 gateway, orders = SimulatedGateway(), OrdersClient()
+events = kafka_events.publisher
 
 @router.get("", response_model=list[PaymentResponse])
 def list_all(db: Session = Depends(get_db)):
@@ -30,4 +32,4 @@ def by_order(order_id: str, db: Session = Depends(get_db)):
 
 
 def create(data: PaymentRequest, db: Session = Depends(get_db),authorization: str | None = Header(None)):
-    return service.process_payment(db, gateway, orders, data.orderId, data.method.value, authorization)
+    return service.process_payment(db, gateway, orders, data.orderId, data.method.value, authorization, events)

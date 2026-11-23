@@ -3,7 +3,16 @@ from fastapi import HTTPException
 from .models import Payment
 from .gateway.base import GatewayTimeout
 
-def process_payment(db, gateway, orders, order_id: str, method: str , auth: str | None = None):
+def _emit(events, name, *args):
+    """Publie un evenement sans jamais faire echouer le paiement."""
+    if events is None:
+        return
+    try:
+        getattr(events, name)(*args)
+    except Exception:
+        pass
+
+def process_payment(db, gateway, orders, order_id: str, method: str , auth: str | None = None, events=None):
     order = orders.get_order(order_id ,auth )
     if order is None:
         raise HTTPException(404, "Order not found.")
@@ -21,12 +30,14 @@ def process_payment(db, gateway, orders, order_id: str, method: str , auth: str 
     except GatewayTimeout:
         p.status, p.failure_reason = "FAILED", "gateway_timeout"
         db.commit()
+        _emit(events, "publish_payment_failed", order_id, method, "gateway_timeout")
         raise HTTPException(503, "Payment provider unavailable.")
 
     p.gateway_ref = result.reference
     if result.outcome != "approved":
         p.status, p.failure_reason = "FAILED", result.reason
         db.commit()
+        _emit(events, "publish_payment_failed", order_id, method, result.reason or "declined")
         raise HTTPException(402, f"Payment declined: {result.reason}")
 
     p.status = "SUCCESS"; db.commit()
@@ -39,4 +50,6 @@ def process_payment(db, gateway, orders, order_id: str, method: str , auth: str 
         p.status, p.failure_reason = "REFUNDED", "order_update_failed"
         db.commit()
         raise
+    # Le paiement est enregistre ET la commande est passee a PAID : on publie.
+    _emit(events, "publish_payment_completed", order_id, p.id, p.amount, method)
     return p

@@ -4,3 +4,5 @@ sqlalchemy
 pydantic
 httpx
 pytest
+aiokafka
+jsonschema

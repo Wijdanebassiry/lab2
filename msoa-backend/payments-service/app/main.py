@@ -6,10 +6,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from .database import Base, engine
 from .routes import router
+from .messaging import kafka_events
+from contextlib import asynccontextmanager
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Payment Service", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app):
+    yield
+    kafka_events.publisher.close()   # vide et ferme proprement le producteur Kafka
+
+app = FastAPI(title="Payment Service", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
