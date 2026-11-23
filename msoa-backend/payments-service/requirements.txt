@@ -6,3 +6,4 @@ httpx
 pytest
 aiokafka
 jsonschema
+aio-pika

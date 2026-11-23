@@ -86,3 +86,25 @@ def test_works_without_token(client):
     c, fake = client
     assert c.post("/api/payments", json={"orderId": "o1"}).status_code == 201
     assert fake.seen_auth == [None, None]
+def test_payment_succeeds_when_rabbitmq_fails(client, monkeypatch):
+    c, fake = client
+
+    def rabbit_failure(order):
+        raise ConnectionError("RabbitMQ unavailable")
+
+    monkeypatch.setattr(
+        routes,
+        "shipment_events",
+        type("BrokenRabbit", (), {
+            "publish_shipment_requested": staticmethod(rabbit_failure)
+        })()
+    )
+
+    response = c.post(
+        "/api/payments",
+        json={"orderId": "o1", "method": "CARD"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "SUCCESS"
+    assert fake.paid is True

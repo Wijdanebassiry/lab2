@@ -7,10 +7,12 @@ from .gateway.simulated import SimulatedGateway
 from .clients.orders_client import OrdersClient
 from .messaging import kafka_events
 from . import service
+from .messaging import kafka_events, rabbit
 
 router = APIRouter(prefix="/api/payments")
 gateway, orders = SimulatedGateway(), OrdersClient()
 events = kafka_events.publisher
+shipment_events = rabbit.publisher
 
 @router.get("", response_model=list[PaymentResponse])
 def list_all(db: Session = Depends(get_db)):
@@ -31,5 +33,9 @@ def by_order(order_id: str, db: Session = Depends(get_db)):
                         503: {"description": "Provider or Orders unavailable"}})
 
 
-def create(data: PaymentRequest, db: Session = Depends(get_db),authorization: str | None = Header(None)):
-    return service.process_payment(db, gateway, orders, data.orderId, data.method.value, authorization, events)
+def create(data: PaymentRequest, db: Session = Depends(get_db), authorization: str | None = Header(None)):
+    return service.process_payment(
+        db, gateway, orders, data.orderId,
+        data.method.value, authorization,
+        events, shipment_events
+    )
