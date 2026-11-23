@@ -8,13 +8,16 @@ from .database import Base, engine
 from .routes import router
 from .messaging import kafka_events
 from contextlib import asynccontextmanager
+from .messaging import kafka_events, rabbit
 
 Base.metadata.create_all(bind=engine)
 
 @asynccontextmanager
 async def lifespan(app):
     yield
-    kafka_events.publisher.close()   # vide et ferme proprement le producteur Kafka
+    kafka_events.publisher.close()
+    rabbit.publisher.close()
+     # vide et ferme proprement le producteur Kafka
 
 app = FastAPI(title="Payment Service", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
