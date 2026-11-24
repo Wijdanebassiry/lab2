@@ -25,6 +25,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import com.msoa.shipping_service.messaging.ShipmentRequestedMessage;
 
 @ExtendWith(MockitoExtension.class)
 class ShipmentServiceTest {
@@ -121,35 +122,34 @@ class ShipmentServiceTest {
         assertTrue(saved.getTrackingNumber().startsWith("TRK-"));
     }
 
-    // TEST 2: Duplicate shipment
+
+    // TEST 2: Duplicate shipment - return existing shipment
     @Test
-    void createShipment_shouldRejectDuplicateOrder() {
+    void createShipment_shouldReturnExistingShipmentForDuplicateOrder() {
 
         ShipmentRequest request = createRequest("order-123");
 
+        Shipment existingShipment = createShipment(ShipmentStatus.PREPARING);
+
         when(shipmentRepository.findByOrderId("order-123"))
-                .thenReturn(Optional.of(
-                        createShipment(ShipmentStatus.PREPARING)
-                ));
+                .thenReturn(Optional.of(existingShipment));
 
-        ResponseStatusException exception =
-                assertThrows(
-                        ResponseStatusException.class,
-                        () -> shipmentService.createShipment(
-                                request,
-                                AUTHORIZATION
-                        )
-                );
+        ShipmentResponse response =
+                shipmentService.createShipment(request, AUTHORIZATION);
 
-        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        // The existing shipment must be returned
+        assertNotNull(response);
 
+        // No new shipment must be created
+        verify(shipmentRepository, never()).save(any(Shipment.class));
+
+        // Orders must not be called again
         verify(orderClient, never()).verifyOrderIsPaid(
                 anyString(),
                 anyString()
         );
-
-        verify(shipmentRepository, never()).save(any(Shipment.class));
     }
+
 
     // TEST 3: Order is not paid
     @Test
@@ -365,4 +365,53 @@ class ShipmentServiceTest {
         // No save must happen
         verify(shipmentRepository, never()).save(any(Shipment.class));
     }
+
+    // TEST 10: RabbitMQ duplicate event - no second shipment created
+    @Test
+    void createShipmentFromEvent_shouldIgnoreDuplicateOrderId() {
+
+        // Create a valid RabbitMQ message
+        ShipmentRequestedMessage message =
+                new ShipmentRequestedMessage();
+
+        message.setMessageId(
+                "550e8400-e29b-41d4-a716-446655440000"
+        );
+        message.setType("shipment.requested");
+        message.setVersion(1);
+        message.setOccurredAt("2026-11-24T10:00:00Z");
+        message.setOrderId("order-123");
+        message.setUserId("user-123");
+
+        ShipmentRequestedMessage.Customer customer =
+                new ShipmentRequestedMessage.Customer();
+
+        customer.setName("Demo Customer");
+        customer.setAddress("123 Main Street");
+        customer.setCity("Casablanca");
+
+        message.setCustomer(customer);
+
+        // Simulate that this order already has a shipment
+        Shipment existingShipment =
+                createShipment(ShipmentStatus.PREPARING);
+
+        when(shipmentRepository.findByOrderId("order-123"))
+                .thenReturn(Optional.of(existingShipment));
+
+        // Process the RabbitMQ event
+        ShipmentResponse response =
+                shipmentService.createShipmentFromEvent(message);
+
+        // The existing shipment must be returned
+        assertNotNull(response);
+
+        // No second shipment must be saved
+        verify(shipmentRepository, never())
+                .save(any(Shipment.class));
+
+        // Orders must not be called for an event
+        verifyNoInteractions(orderClient);
+    }
+
 }

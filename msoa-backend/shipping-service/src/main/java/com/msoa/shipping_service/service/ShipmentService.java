@@ -7,12 +7,14 @@ import com.msoa.shipping_service.dto.ShipmentResponse;
 import com.msoa.shipping_service.dto.UpdateShipmentStatusRequest;
 import com.msoa.shipping_service.entity.Shipment;
 import com.msoa.shipping_service.entity.ShipmentStatus;
+import com.msoa.shipping_service.messaging.ShipmentRequestedMessage;
 import com.msoa.shipping_service.repository.ShipmentRepository;
 
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -46,19 +48,19 @@ public class ShipmentService {
         return toResponse(shipment);
     }
 
-    // 3. Create shipment
+    // 3. Create shipment through REST
     public ShipmentResponse createShipment(
             ShipmentRequest request,
             String authorization
     ) {
 
-        // Check if shipment already exists
-        if (shipmentRepository.findByOrderId(request.getOrderId()).isPresent()) {
+        // Idempotency: return existing shipment if it already exists
+        var existingShipment = shipmentRepository.findByOrderId(
+                request.getOrderId()
+        );
 
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "A shipment already exists for this order"
-            );
+        if (existingShipment.isPresent()) {
+            return toResponse(existingShipment.get());
         }
 
         // Verify order with Orders microservice using JWT
@@ -67,13 +69,60 @@ public class ShipmentService {
                 authorization
         );
 
-        // Create shipment entity
+        // Create and save shipment
+        Shipment savedShipment = createAndSaveShipment(
+                request.getOrderId(),
+                request.getAddress().getName(),
+                request.getAddress().getAddress(),
+                request.getAddress().getCity()
+        );
+
+        return toResponse(savedShipment);
+    }
+
+    // 4. Create shipment from RabbitMQ event
+    @Transactional
+    public ShipmentResponse createShipmentFromEvent(
+            ShipmentRequestedMessage message
+    ) {
+
+        // Validate incoming message
+        message.validate();
+
+        // Idempotency: ignore duplicate order events
+        var existingShipment = shipmentRepository.findByOrderId(
+                message.getOrderId()
+        );
+
+        if (existingShipment.isPresent()) {
+            return toResponse(existingShipment.get());
+        }
+
+        // Payments publishes this event only after successful payment
+        Shipment savedShipment = createAndSaveShipment(
+                message.getOrderId(),
+                message.getCustomer().getName(),
+                message.getCustomer().getAddress(),
+                message.getCustomer().getCity()
+        );
+
+        return toResponse(savedShipment);
+    }
+
+    // 5. Common method to create and save a shipment
+    private Shipment createAndSaveShipment(
+            String orderId,
+            String name,
+            String address,
+            String city
+    ) {
+
         Shipment shipment = new Shipment();
 
-        shipment.setOrderId(request.getOrderId());
-        shipment.setName(request.getAddress().getName());
-        shipment.setAddress(request.getAddress().getAddress());
-        shipment.setCity(request.getAddress().getCity());
+        shipment.setOrderId(orderId);
+        shipment.setName(name);
+        shipment.setAddress(address);
+        shipment.setCity(city);
 
         shipment.setTrackingNumber(
                 "TRK-" + UUID.randomUUID().toString().substring(0, 8)
@@ -81,13 +130,10 @@ public class ShipmentService {
 
         shipment.setStatus(ShipmentStatus.PREPARING);
 
-        // Save in MySQL
-        Shipment savedShipment = shipmentRepository.save(shipment);
-
-        return toResponse(savedShipment);
+        return shipmentRepository.save(shipment);
     }
 
-    // 4. Update shipment status
+    // 6. Update shipment status
     public ShipmentResponse updateShipmentStatus(
             Long id,
             UpdateShipmentStatusRequest request,
@@ -120,7 +166,7 @@ public class ShipmentService {
             );
         }
 
-        // Synchronize with Orders BEFORE changing the local shipment status
+        // Synchronize with Orders BEFORE changing local shipment status
         if (newStatus == ShipmentStatus.SHIPPED
                 || newStatus == ShipmentStatus.DELIVERED) {
 
@@ -131,7 +177,7 @@ public class ShipmentService {
             );
         }
 
-        // Only update Shipping after successful synchronization
+        // Save only after successful synchronization
         shipment.setStatus(newStatus);
 
         Shipment updatedShipment = shipmentRepository.save(shipment);
@@ -139,7 +185,7 @@ public class ShipmentService {
         return toResponse(updatedShipment);
     }
 
-    // Convert Entity to Response DTO
+    // 7. Convert Entity to Response DTO
     private ShipmentResponse toResponse(Shipment shipment) {
 
         return new ShipmentResponse(
