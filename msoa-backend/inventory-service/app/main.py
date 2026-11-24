@@ -1,3 +1,4 @@
+from .grpc_server import start_grpc
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -30,7 +31,9 @@ def seed() -> None:
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(engine)
     seed()
+    grpc_server = start_grpc()
     yield
+    grpc_server.stop(grace=2)
 
 
 app = FastAPI(title="Inventory Service", version="1.0.0", lifespan=lifespan)

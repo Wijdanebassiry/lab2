@@ -59,41 +59,44 @@ Errors are returned as `{ "message": "...", "detail": "..." }`:
 
 ## gRPC (port 50051)
 
-The Orders service checks stock availability through gRPC (low latency, typed contract).
-REST routes are unchanged and remain available.
+Orders reserves and releases stock through gRPC (low latency, typed contract). The REST
+API (port 8083) is unchanged and remains available for the frontend.
 
-Contract: `proto/inventory.proto`. One operation:
+Contract: `contracts/inventory.proto` (package `inventory.v1`, service `Inventory`).
+`proto/inventory.proto` is an exact copy of it: there must be one contract only.
 
-| RPC | Request | Response |
-|---|---|---|
-| `InventoryService/CheckAvailability` | `items: [{ productId, quantity }]` | `available`, `unavailable: [{ productId, requested, availableQuantity }]` |
+| RPC | Request | Response | Effect |
+|---|---|---|---|
+| `CheckAvailability` | `StockRequest { items: [{ product_id, quantity }] }` | `{ available, unavailable[] }` | modifies nothing |
+| `Reserve` | `StockRequest` | `{ success, unavailable[] }` | all or nothing; `success = false` if the stock is insufficient |
+| `Release` | `StockRequest` | `{ success }` | puts the stock back |
 
-Status codes: `NOT_FOUND` for an unknown product, `INVALID_ARGUMENT` for an empty list
-or a quantity <= 0. `productId` is a string. `reserve` and `release` stay on REST.
+Errors: `INVALID_ARGUMENT` for an empty `items`, an empty `product_id` or a quantity <= 0.
+An unknown product is reported in `unavailable` (`available = 0`), as in REST.
 
-Run the server (separate terminal, same folder as the REST service):
+The gRPC server starts with the API (lifespan in `app/main.py`, after `seed()`) and stops
+with it. Port: `GRPC_PORT` (default `50051`). No separate process is needed.
+
+After a change of the contract, copy `contracts/inventory.proto` to `proto/inventory.proto`,
+then regenerate the code (`app/grpc_gen`):
 
 ```bash
-python -m app.grpc_server
+python scripts/gen_grpc.py
 ```
 
 Test with grpcurl:
 
 ```bash
-grpcurl -plaintext -proto proto/inventory.proto -d '{"items":[{"productId":"3","quantity":3}]}' localhost:50051 inventory.InventoryService/CheckAvailability
+grpcurl -plaintext -proto proto/inventory.proto 127.0.0.1:50051 list
+grpcurl -plaintext -proto proto/inventory.proto -d '{"items":[{"product_id":"3","quantity":2}]}' 127.0.0.1:50051 inventory.v1.Inventory/Reserve
 ```
-
-The generated code is in `app/grpc_gen/`. After editing the `.proto`, regenerate it with
-`python -m grpc_tools.protoc -I proto --python_out=app/grpc_gen --grpc_python_out=app/grpc_gen proto/inventory.proto`
-and change the import in `inventory_pb2_grpc.py` to `from . import inventory_pb2 as inventory__pb2`.
-
 ## Tests
 
 ```bash
 python -m pytest -q
 ```
 
-9 automated tests cover reserve, atomicity, duplicates, numeric IDs, release, check and errors.
+22 automated tests: 9 for REST (reserve, atomicity, duplicates, numeric IDs, release, check, errors) and 13 for gRPC (CheckAvailability, Reserve, Release, insufficient stock, invalid arguments).
 
 ## Configuration
 
