@@ -16,6 +16,8 @@ function readCatalogPrice(product) {
   return Number(raw !== null && typeof raw === "object" ? raw.amount : raw);
 }
 const INVENTORY_URL = process.env.INVENTORY_URL || "http://127.0.0.1:8083";
+const { reserveStockGrpc, releaseStockGrpc } = require("./inventoryGrpc");
+const INVENTORY_TRANSPORT = (process.env.INVENTORY_TRANSPORT || "grpc").toLowerCase();
 const SHIPPING_URL = process.env.SHIPPING_URL || "http://127.0.0.1:8086";
 
 app.use(cors());
@@ -128,6 +130,9 @@ function getOrderItems(orderId) {
 }
 
 async function reserveStock(items) {
+  if (INVENTORY_TRANSPORT === "grpc") {
+    return reserveStockGrpc(items);
+  }
   return apiCall(`${INVENTORY_URL}/api/inventory/reserve`, {
     method: "POST",
     headers: {
@@ -143,6 +148,9 @@ async function reserveStock(items) {
 }
 
 async function releaseStock(items) {
+  if (INVENTORY_TRANSPORT === "grpc") {
+    return releaseStockGrpc(items);
+  }
   return apiCall(`${INVENTORY_URL}/api/inventory/release`, {
     method: "POST",
     headers: {

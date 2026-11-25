@@ -1,4 +1,5 @@
-﻿
+process.env.INVENTORY_TRANSPORT = "rest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
