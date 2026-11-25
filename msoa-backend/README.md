@@ -10,6 +10,7 @@ Backend e-commerce en microservices. Les contrats d'API (routes, formats, erreur
 | Orders | 8084 | Node.js + Express + SQLite | `orders-service` |
 | Payments | 8085 | FastAPI + SQLite | `payments-service` |
 | Shipping | 8086 | Spring Boot + MySQL | `shipping-service` |
+- analytics-service (port 8087) : consomme les événements Kafka (orders/payments/shipments.events), conserve l'historique et le rejoue. Voir analytics-service/README.md
 
 ## Flux principal
 1. Le client se connecte (Auth) et reçoit un token JWT.
