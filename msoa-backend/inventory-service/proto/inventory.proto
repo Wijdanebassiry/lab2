@@ -1,27 +1,43 @@
 syntax = "proto3";
 
-package inventory;
+// Contrat gRPC entre Orders (client) et Inventory (serveur). Version 1.
+// Les routes REST d'Inventory restent disponibles pour le frontend.
+package inventory.v1;
 
-service InventoryService {
-  rpc CheckAvailability (AvailabilityRequest) returns (AvailabilityResponse);
+service Inventory {
+  // Vérifie la disponibilité sans rien modifier.
+  rpc CheckAvailability (StockRequest) returns (CheckResponse);
+  // Réserve le stock. Tout ou rien : si un produit manque, rien n'est réservé.
+  rpc Reserve (StockRequest) returns (ReserveResponse);
+  // Remet le stock (annulation de commande).
+  rpc Release (StockRequest) returns (ReleaseResponse);
 }
 
 message StockItem {
-  string productId = 1;
-  int32 quantity = 2;
+  string product_id = 1;   // identifiant du produit, par exemple "1"
+  int32 quantity = 2;      // supérieur à 0
 }
 
-message AvailabilityRequest {
-  repeated StockItem items = 1;
+message StockRequest {
+  repeated StockItem items = 1;   // au moins un élément
 }
 
-message UnavailableItem {
-  string productId = 1;
+message Unavailable {
+  string product_id = 1;
   int32 requested = 2;
-  int32 availableQuantity = 3;
+  int32 available = 3;
 }
 
-message AvailabilityResponse {
+message CheckResponse {
   bool available = 1;
-  repeated UnavailableItem unavailable = 2;
+  repeated Unavailable unavailable = 2;
+}
+
+message ReserveResponse {
+  bool success = 1;                       // false si le stock est insuffisant
+  repeated Unavailable unavailable = 2;   // produits en cause quand success = false
+}
+
+message ReleaseResponse {
+  bool success = 1;
 }

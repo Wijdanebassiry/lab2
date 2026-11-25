@@ -1,84 +1,93 @@
 """gRPC server of the Inventory service.
 
-Run from the inventory-service folder:
-    python -m app.grpc_server
-
-It reuses the stock logic of app/service.py, so the REST API and the gRPC API
-always give the same answers. The REST routes are not modified.
+Contract: contracts/inventory.proto (package inventory.v1, service Inventory).
+The server starts with the API (see the lifespan in app/main.py) and reuses the
+stock logic of app/service.py, so REST and gRPC always give the same answers.
 """
 
+import logging
 import os
 from concurrent import futures
 
 import grpc
 
 from . import service
-from .database import Base, SessionLocal, engine
+from .database import SessionLocal
 from .grpc_gen import inventory_pb2, inventory_pb2_grpc
-from .models import Stock
 from .schemas import Item
 
+logger = logging.getLogger("inventory.grpc")
 
-class InventoryServicer(inventory_pb2_grpc.InventoryServiceServicer):
+
+def _merged_items(request, context) -> dict[str, int]:
+    """Validate a StockRequest and merge duplicated products."""
+    if not request.items:
+        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "items must not be empty")
+
+    items = []
+    for it in request.items:
+        if not it.product_id or it.quantity <= 0:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "each item needs a product_id and a quantity greater than 0",
+            )
+        items.append(Item(productId=it.product_id, quantity=it.quantity))
+    return service.merge_items(items)
+
+
+def _unavailable(details: list[dict]):
+    return [
+        inventory_pb2.Unavailable(
+            product_id=d["productId"],
+            requested=d["requested"],
+            available=d["available"],
+        )
+        for d in details
+    ]
+
+
+class InventoryServicer(inventory_pb2_grpc.InventoryServicer):
     def CheckAvailability(self, request, context):
-        if not request.items:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "items must not be empty")
-
-        items = []
-        for it in request.items:
-            if not it.productId or it.quantity <= 0:
-                context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT,
-                    "each item needs a productId and a quantity greater than 0",
-                )
-            items.append(Item(productId=it.productId, quantity=it.quantity))
-
-        merged = service.merge_items(items)
-
+        merged = _merged_items(request, context)
         with SessionLocal() as db:
-            for product_id in merged:
-                if db.get(Stock, product_id) is None:
-                    context.abort(
-                        grpc.StatusCode.NOT_FOUND,
-                        f"Product {product_id} not found",
-                    )
             unavailable = service.find_unavailable(db, merged)
-
-        return inventory_pb2.AvailabilityResponse(
-            available=len(unavailable) == 0,
-            unavailable=[
-                inventory_pb2.UnavailableItem(
-                    productId=u["productId"],
-                    requested=u["requested"],
-                    availableQuantity=u["available"],
-                )
-                for u in unavailable
-            ],
+        return inventory_pb2.CheckResponse(
+            available=not unavailable,
+            unavailable=_unavailable(unavailable),
         )
 
+    def Reserve(self, request, context):
+        merged = _merged_items(request, context)
+        with SessionLocal() as db:
+            # all or nothing: service.reserve rolls back if one product is short
+            unavailable = service.reserve(db, merged)
+        return inventory_pb2.ReserveResponse(
+            success=not unavailable,
+            unavailable=_unavailable(unavailable),
+        )
 
-def build_server(port: int) -> grpc.Server:
+    def Release(self, request, context):
+        merged = _merged_items(request, context)
+        with SessionLocal() as db:
+            service.release(db, merged)
+        return inventory_pb2.ReleaseResponse(success=True)
+
+
+def build_server(port: int) -> tuple[grpc.Server, int]:
+    """Create the server (not started). Returns it with the port really bound."""
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    inventory_pb2_grpc.add_InventoryServiceServicer_to_server(
-        InventoryServicer(), server
-    )
-    server.add_insecure_port(f"[::]:{port}")
-    return server
+    inventory_pb2_grpc.add_InventoryServicer_to_server(InventoryServicer(), server)
+    bound_port = server.add_insecure_port(f"[::]:{port}")
+    return server, bound_port
 
 
-if __name__ == "__main__":
-    from .main import seed
-
-    # same tables and demo stock as the REST service
-    Base.metadata.create_all(engine)
-    seed()
-
-    port = int(os.getenv("GRPC_PORT", "50051"))
-    server = build_server(port)
+def start_grpc(port: int | None = None) -> grpc.Server:
+    """Start the gRPC server in background threads (port: GRPC_PORT, default 50051)."""
+    if port is None:
+        port = int(os.getenv("GRPC_PORT", "50051"))
+    server, bound_port = build_server(port)
+    if bound_port == 0:
+        raise RuntimeError(f"gRPC: cannot listen on port {port} (already in use?)")
     server.start()
-    print(f"Inventory gRPC server listening on port {port}")
-    try:
-        server.wait_for_termination()
-    except KeyboardInterrupt:
-        server.stop(0)
-        print("Inventory gRPC server stopped")
+    logger.info("Inventory gRPC server listening on port %s", bound_port)
+    return server

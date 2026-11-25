@@ -24,21 +24,25 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0finventory.proto\x12\tinventory\"0\n\tStockItem\x12\x11\n\tproductId\x18\x01 \x01(\t\x12\x10\n\x08quantity\x18\x02 \x01(\x05\":\n\x13\x41vailabilityRequest\x12#\n\x05items\x18\x01 \x03(\x0b\x32\x14.inventory.StockItem\"R\n\x0fUnavailableItem\x12\x11\n\tproductId\x18\x01 \x01(\t\x12\x11\n\trequested\x18\x02 \x01(\x05\x12\x19\n\x11\x61vailableQuantity\x18\x03 \x01(\x05\"Z\n\x14\x41vailabilityResponse\x12\x11\n\tavailable\x18\x01 \x01(\x08\x12/\n\x0bunavailable\x18\x02 \x03(\x0b\x32\x1a.inventory.UnavailableItem2h\n\x10InventoryService\x12T\n\x11\x43heckAvailability\x12\x1e.inventory.AvailabilityRequest\x1a\x1f.inventory.AvailabilityResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0finventory.proto\x12\x0cinventory.v1\"1\n\tStockItem\x12\x12\n\nproduct_id\x18\x01 \x01(\t\x12\x10\n\x08quantity\x18\x02 \x01(\x05\"6\n\x0cStockRequest\x12&\n\x05items\x18\x01 \x03(\x0b\x32\x17.inventory.v1.StockItem\"G\n\x0bUnavailable\x12\x12\n\nproduct_id\x18\x01 \x01(\t\x12\x11\n\trequested\x18\x02 \x01(\x05\x12\x11\n\tavailable\x18\x03 \x01(\x05\"R\n\rCheckResponse\x12\x11\n\tavailable\x18\x01 \x01(\x08\x12.\n\x0bunavailable\x18\x02 \x03(\x0b\x32\x19.inventory.v1.Unavailable\"R\n\x0fReserveResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12.\n\x0bunavailable\x18\x02 \x03(\x0b\x32\x19.inventory.v1.Unavailable\"\"\n\x0fReleaseResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x32\xe5\x01\n\tInventory\x12L\n\x11\x43heckAvailability\x12\x1a.inventory.v1.StockRequest\x1a\x1b.inventory.v1.CheckResponse\x12\x44\n\x07Reserve\x12\x1a.inventory.v1.StockRequest\x1a\x1d.inventory.v1.ReserveResponse\x12\x44\n\x07Release\x12\x1a.inventory.v1.StockRequest\x1a\x1d.inventory.v1.ReleaseResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'inventory_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_STOCKITEM']._serialized_start=30
-  _globals['_STOCKITEM']._serialized_end=78
-  _globals['_AVAILABILITYREQUEST']._serialized_start=80
-  _globals['_AVAILABILITYREQUEST']._serialized_end=138
-  _globals['_UNAVAILABLEITEM']._serialized_start=140
-  _globals['_UNAVAILABLEITEM']._serialized_end=222
-  _globals['_AVAILABILITYRESPONSE']._serialized_start=224
-  _globals['_AVAILABILITYRESPONSE']._serialized_end=314
-  _globals['_INVENTORYSERVICE']._serialized_start=316
-  _globals['_INVENTORYSERVICE']._serialized_end=420
+  _globals['_STOCKITEM']._serialized_start=33
+  _globals['_STOCKITEM']._serialized_end=82
+  _globals['_STOCKREQUEST']._serialized_start=84
+  _globals['_STOCKREQUEST']._serialized_end=138
+  _globals['_UNAVAILABLE']._serialized_start=140
+  _globals['_UNAVAILABLE']._serialized_end=211
+  _globals['_CHECKRESPONSE']._serialized_start=213
+  _globals['_CHECKRESPONSE']._serialized_end=295
+  _globals['_RESERVERESPONSE']._serialized_start=297
+  _globals['_RESERVERESPONSE']._serialized_end=379
+  _globals['_RELEASERESPONSE']._serialized_start=381
+  _globals['_RELEASERESPONSE']._serialized_end=415
+  _globals['_INVENTORY']._serialized_start=418
+  _globals['_INVENTORY']._serialized_end=647
 # @@protoc_insertion_point(module_scope)

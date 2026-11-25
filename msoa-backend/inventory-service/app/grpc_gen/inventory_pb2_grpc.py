@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class InventoryServiceStub:
+class InventoryStub:
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -35,38 +35,73 @@ class InventoryServiceStub:
             channel: A grpc.Channel.
         """
         self.CheckAvailability = channel.unary_unary(
-                '/inventory.InventoryService/CheckAvailability',
-                request_serializer=inventory__pb2.AvailabilityRequest.SerializeToString,
-                response_deserializer=inventory__pb2.AvailabilityResponse.FromString,
+                '/inventory.v1.Inventory/CheckAvailability',
+                request_serializer=inventory__pb2.StockRequest.SerializeToString,
+                response_deserializer=inventory__pb2.CheckResponse.FromString,
+                _registered_method=True)
+        self.Reserve = channel.unary_unary(
+                '/inventory.v1.Inventory/Reserve',
+                request_serializer=inventory__pb2.StockRequest.SerializeToString,
+                response_deserializer=inventory__pb2.ReserveResponse.FromString,
+                _registered_method=True)
+        self.Release = channel.unary_unary(
+                '/inventory.v1.Inventory/Release',
+                request_serializer=inventory__pb2.StockRequest.SerializeToString,
+                response_deserializer=inventory__pb2.ReleaseResponse.FromString,
                 _registered_method=True)
 
 
-class InventoryServiceServicer:
+class InventoryServicer:
     """Missing associated documentation comment in .proto file."""
 
     def CheckAvailability(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Vérifie la disponibilité sans rien modifier.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Reserve(self, request, context):
+        """Réserve le stock. Tout ou rien : si un produit manque, rien n'est réservé.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Release(self, request, context):
+        """Remet le stock (annulation de commande).
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
 
-def add_InventoryServiceServicer_to_server(servicer, server):
+def add_InventoryServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'CheckAvailability': grpc.unary_unary_rpc_method_handler(
                     servicer.CheckAvailability,
-                    request_deserializer=inventory__pb2.AvailabilityRequest.FromString,
-                    response_serializer=inventory__pb2.AvailabilityResponse.SerializeToString,
+                    request_deserializer=inventory__pb2.StockRequest.FromString,
+                    response_serializer=inventory__pb2.CheckResponse.SerializeToString,
+            ),
+            'Reserve': grpc.unary_unary_rpc_method_handler(
+                    servicer.Reserve,
+                    request_deserializer=inventory__pb2.StockRequest.FromString,
+                    response_serializer=inventory__pb2.ReserveResponse.SerializeToString,
+            ),
+            'Release': grpc.unary_unary_rpc_method_handler(
+                    servicer.Release,
+                    request_deserializer=inventory__pb2.StockRequest.FromString,
+                    response_serializer=inventory__pb2.ReleaseResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'inventory.InventoryService', rpc_method_handlers)
+            'inventory.v1.Inventory', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('inventory.InventoryService', rpc_method_handlers)
+    server.add_registered_method_handlers('inventory.v1.Inventory', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class InventoryService:
+class Inventory:
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
@@ -83,9 +118,63 @@ class InventoryService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/inventory.InventoryService/CheckAvailability',
-            inventory__pb2.AvailabilityRequest.SerializeToString,
-            inventory__pb2.AvailabilityResponse.FromString,
+            '/inventory.v1.Inventory/CheckAvailability',
+            inventory__pb2.StockRequest.SerializeToString,
+            inventory__pb2.CheckResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Reserve(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inventory.v1.Inventory/Reserve',
+            inventory__pb2.StockRequest.SerializeToString,
+            inventory__pb2.ReserveResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Release(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inventory.v1.Inventory/Release',
+            inventory__pb2.StockRequest.SerializeToString,
+            inventory__pb2.ReleaseResponse.FromString,
             options,
             channel_credentials,
             insecure,
