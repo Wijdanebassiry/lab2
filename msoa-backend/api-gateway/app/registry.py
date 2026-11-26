@@ -1,23 +1,64 @@
-"""Registre de services en memoire. A CODER PAR [Orders]."""
+
+"""Registre de services en memoire."""
+
+import re
+from threading import RLock
+from urllib.parse import urlsplit
 
 
 class RegistryError(ValueError):
-    """Enregistrement invalide (renvoye en HTTP 400)."""
+    """Enregistrement invalide."""
 
 
 class ServiceRegistry:
+    def __init__(self):
+        self._services = {}
+        self._lock = RLock()
+
     def register(self, name, address):
-        """Valide puis enregistre (remplace l'existant). Renvoie (name, address)."""
-        raise NotImplementedError("a implementer (branche lab5/registry)")
+        if not isinstance(name, str) or not name.strip():
+            raise RegistryError("Service name is required.")
+
+        if not isinstance(address, str) or not address.strip():
+            raise RegistryError("Service address is required.")
+
+        name = name.strip()
+        address = address.strip()
+
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            raise RegistryError("Invalid service name.")
+
+        try:
+            parsed = urlsplit(address)
+            valid_url = (
+                parsed.scheme in ("http", "https")
+                and bool(parsed.hostname)
+                and parsed.port != 0
+            )
+        except ValueError:
+            valid_url = False
+
+        if not valid_url:
+            raise RegistryError("Invalid service address.")
+
+        address = address.rstrip("/")
+
+        with self._lock:
+            self._services[name] = address
+
+        return name, address
 
     def get(self, name):
-        raise NotImplementedError
+        with self._lock:
+            return self._services.get(name)
 
     def remove(self, name):
-        raise NotImplementedError
+        with self._lock:
+            return self._services.pop(name, None)
 
     def all(self):
-        raise NotImplementedError
+        with self._lock:
+            return dict(self._services)
 
 
-registry = ServiceRegistry()   # instance unique, utilisee par registry_api et resolver
+registry = ServiceRegistry()
