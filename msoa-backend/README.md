@@ -58,3 +58,4 @@ git add . && git commit -m "message clair"
 git push -u origin feature/ma-branche
 ```
 Ne modifier que le dossier de son service, et uniquement sa propre section dans `CONTRACTS.md`.
+- api-gateway (port 8080) : point d'entrée unique et découverte de services. Voir api-gateway/README.md

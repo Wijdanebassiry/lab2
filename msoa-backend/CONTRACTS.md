@@ -754,3 +754,49 @@ Enveloppe commune (schéma `contracts/event.envelope.v1.schema.json`) : `{ event
 Règles : un événement est publié **après** l'enregistrement en base ; une panne de Kafka ne fait jamais échouer l'opération métier.
 
 Service Analytics (nouveau, port 8087) : `GET /api/analytics/summary` (commandes, annulations, chiffre d'affaires, paiements réussis et refusés, livraisons par statut), `GET /api/analytics/events` (événements bruts), `POST /api/analytics/replay` (recalcul depuis le début), `GET /health`.
+
+## Lab 5 : API Gateway et Service Discovery
+
+Passerelle en Python (FastAPI + httpx), dossier `msoa-backend/api-gateway`, port **8080**.
+Lancement : `uvicorn app.main:app --port 8080`. Aucun service existant n'est modifie.
+
+### Routes (les chemins ne changent pas)
+| Chemin | Nom logique | Adresse statique |
+|---|---|---|
+| `/api/auth` | `auth-service` | http://127.0.0.1:8081 |
+| `/products`, `/v2/products` | `catalog-service` | http://127.0.0.1:8082 |
+| `/api/inventory` | `inventory-service` | http://127.0.0.1:8083 |
+| `/api/orders` | `orders-service` | http://127.0.0.1:8084 |
+| `/api/payments` | `payments-service` | http://127.0.0.1:8085 |
+| `/api/shipments` | `shipping-service` | http://127.0.0.1:8086 |
+
+### Modes (`GATEWAY_MODE`)
+- `static` : adresses de `config.py` (probleme 1).
+- `dynamic` (defaut) : adresses lues dans le registre en memoire (probleme 2).
+
+### Registre
+- `POST /registry/register`, corps `{"name":"catalog-service","address":"http://127.0.0.1:8082"}`
+  - 200 : `{"message":"Service registered successfully","name":"...","address":"..."}`
+  - 400 : `{"error":"..."}` (nom ou adresse manquant ou invalide, JSON invalide)
+  - un nouvel enregistrement du meme nom remplace l'ancien
+- `GET /registry/services` : `{"catalog-service":"http://127.0.0.1:8082"}`
+
+### Erreurs de la passerelle
+| Code | Cas |
+|---|---|
+| 404 | aucune route pour ce chemin |
+| 503 | service non enregistre : `{"error":"<service> is not registered"}` (la requete n'est pas transmise) |
+| 502 | service injoignable |
+| 504 | delai depasse |
+
+### Interfaces entre modules
+| Fichier | Responsable | Contenu |
+|---|---|---|
+| `app/proxy.py` | [Auth] | `async forward(request, service, address, client) -> Response` |
+| `app/registry.py` | [Orders] | `ServiceRegistry` (`register`, `get`, `remove`, `all`), `RegistryError`, instance `registry` |
+| `app/registry_api.py` | [Orders] | `router` (`/registry/register`, `/registry/services`) |
+| `app/resolver.py` | [Payments] | `resolve(service) -> str \| None` |
+| `scripts/register.py`, `README.md` | [Shipping] | enregistrement des services, documentation |
+| `front/src/config/backend.js` | [Catalog] | une seule URL : la passerelle |
+
+Regle : chacun ne modifie que ses fichiers.
